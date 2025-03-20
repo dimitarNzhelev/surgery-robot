@@ -9,7 +9,8 @@ class VideoControlGUI:
         self.command_sender = command_sender
         self.root = tk.Tk()
         self.root.title("Video Control Interface")
-        self.root.geometry("800x600")
+        # Start with a base geometry; grid layout will manage resizing.
+        self.root.geometry("1000x800")
         self.style = ttk.Style(self.root)
         self.style.theme_use('clam')  # Use a modern theme
         self.pressed_keys = set()
@@ -18,18 +19,23 @@ class VideoControlGUI:
         self.bind_events()
 
     def create_widgets(self):
-        # Main video frame for a resizable video display
+        # Configure grid on the root window
+        self.root.grid_rowconfigure(0, weight=1)
+        self.root.grid_rowconfigure(1, weight=0)
+        self.root.grid_columnconfigure(0, weight=1)
+
+        # Video frame in row 0, expands with the window
         self.video_frame = ttk.Frame(self.root)
-        self.video_frame.pack(fill="both", expand=True, padx=10, pady=10)
+        self.video_frame.grid(row=0, column=0, sticky="nsew", padx=10, pady=10)
 
         self.video_label = ttk.Label(self.video_frame, background="black")
         self.video_label.pack(fill="both", expand=True)
 
-        # Control frame for directional buttons (gearshift removed)
+        # Control frame in row 1; fixed height so buttons remain visible.
         self.control_frame = ttk.Frame(self.root)
-        self.control_frame.pack(pady=10)
+        self.control_frame.grid(row=1, column=0, pady=10)
 
-        # Directional buttons arranged in a grid layout
+        # Directional buttons arranged in a grid layout within the control frame.
         self.btn_up = ttk.Button(self.control_frame, text="↑", command=lambda: self.command_sender.send_udp_message('u'))
         self.btn_left = ttk.Button(self.control_frame, text="←", command=lambda: self.command_sender.send_udp_message('l'))
         self.btn_down = ttk.Button(self.control_frame, text="↓", command=lambda: self.command_sender.send_udp_message('d'))
@@ -82,18 +88,24 @@ class VideoControlGUI:
                 frame = self.video_receiver.decoded_frame_queue.get()
                 cv_image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 pil_image = Image.fromarray(cv_image)
-                # Resize the image to fit the video label dimensions
-                label_width = self.video_label.winfo_width()
-                label_height = self.video_label.winfo_height()
-                if label_width > 0 and label_height > 0:
-                    try:
-                        resample = Image.Resampling.LANCZOS
-                    except AttributeError:
-                        resample = Image.LANCZOS
-                    pil_image = pil_image.resize((label_width, label_height), resample)
+                
+                # Define new, larger dimensions for the video image
+                new_img_width = 800
+                new_img_height = 600
+
+                try:
+                    resample = Image.Resampling.LANCZOS
+                except AttributeError:
+                    resample = Image.LANCZOS
+                pil_image = pil_image.resize((new_img_width, new_img_height), resample)
                 imgtk = ImageTk.PhotoImage(image=pil_image)
                 self.video_label.imgtk = imgtk  # Prevent garbage collection
                 self.video_label.configure(image=imgtk)
+
+                # Update window geometry: add extra height for control buttons.
+                new_window_width = new_img_width + 40  # extra padding
+                new_window_height = new_img_height + 150
+                self.root.geometry(f"{new_window_width}x{new_window_height}")
         except Exception as e:
             print(f"Error updating image: {e}")
         finally:
