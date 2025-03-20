@@ -33,7 +33,6 @@ class VideoStreamReceiver:
             "-f", "rawvideo",
             "-pix_fmt", "bgr24",
             "-s", f"{self.width}x{self.height}",
-            "-r", str(self.framerate),
             "pipe:1"                      # Output raw video frames to stdout.
         ]
         self.ffmpeg_process = subprocess.Popen(
@@ -42,6 +41,7 @@ class VideoStreamReceiver:
             stdout=subprocess.PIPE,
             bufsize=0
         )
+        self.recorder = None
 
     def start(self):
         """
@@ -135,6 +135,8 @@ class VideoStreamReceiver:
                     continue
                 frame = np.frombuffer(raw_frame, dtype=np.uint8)
                 frame = frame.reshape((self.height, self.width, 3))
+                if self.recorder:
+                    self.recorder.record(frame)
                 if self.decoded_frame_queue.full():
                     try:
                         self.decoded_frame_queue.get_nowait()  # Remove oldest frame.
