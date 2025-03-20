@@ -7,6 +7,16 @@ import threading
 import subprocess
 from typing import Optional
 from camera_utils import find_available_camera
+import sys
+import os
+import logging
+
+def restart_application():
+    logging.info("Restarting the entire application gracefully...")
+    # Perform any additional cleanup if necessary before restarting.
+    python = sys.executable
+    os.execl(python, python, *sys.argv)
+
 
 class VideoSender:
     def __init__(
@@ -21,15 +31,6 @@ class VideoSender:
     ) -> None:
         """
         Initialize the VideoSender with a persistent FFmpeg process for MPEG-4 encoding.
-
-        Args:
-            host (str): The target host IP.
-            port (int): The target port.
-            camera_index (Optional[int]): Specific camera index; auto-detect if None.
-            width (int): Frame width.
-            height (int): Frame height.
-            ffmpeg_quality (int): MPEG-4 encoder quality parameter (1-31, lower is better).
-            framerate (int): Input frame rate.
         """
         self.host = host
         self.port = port
@@ -40,6 +41,7 @@ class VideoSender:
         self._stop_event = threading.Event()
         self.latest_frame = None
         self.frame_lock = threading.Lock()
+        self.capture_failure_count = 0  # Track consecutive capture failures
 
         # Auto-detect camera if index is not provided
         if camera_index is None:
@@ -49,18 +51,28 @@ class VideoSender:
         else:
             self.camera_index = camera_index
 
-        self.capture = cv2.VideoCapture(self.camera_index)
-        self.capture.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
-        self.capture.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
-
-        # Initialize UDP socket
-        self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self._init_camera()
+        self._init_socket()
+        self._init_ffmpeg()
 
         # Start a dedicated thread to continuously capture raw frames
         self.capture_thread = threading.Thread(target=self._capture_frames, daemon=True)
         self.capture_thread.start()
 
-        # Start a persistent FFmpeg process to encode raw frames into MPEG-4 (within an MPEG-TS stream)
+        logging.info(f"VideoSender initialized on camera index {self.camera_index}.")
+
+    def _init_camera(self):
+        """Initialize the camera capture."""
+        self.capture = cv2.VideoCapture(self.camera_index)
+        self.capture.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
+        self.capture.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
+
+    def _init_socket(self):
+        """Initialize the UDP socket."""
+        self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
+    def _init_ffmpeg(self):
+        """Initialize the persistent FFmpeg process."""
         ffmpeg_cmd = [
             "ffmpeg",
             "-y",  # overwrite output
@@ -81,18 +93,24 @@ class VideoSender:
             bufsize=0
         )
 
-        logging.info(f"VideoSender initialized on camera index {self.camera_index}.")
-
     def _capture_frames(self) -> None:
-        """Continuously capture raw frames from the camera."""
         while not self._stop_event.is_set():
             ret, frame = self.capture.read()
             if ret:
                 with self.frame_lock:
                     self.latest_frame = frame
+                self.capture_failure_count = 0  # Reset failure count on success
             else:
-                logging.warning("Failed to capture frame in capture thread.")
+                self.capture_failure_count += 1
+                logging.warning("Failed to capture frame in capture thread. Failure count: %d", 
+                                self.capture_failure_count)
+                if self.capture_failure_count >= 10:
+                    logging.error("Capture failure count reached 10. Restarting application.")
+                    self.cleanup()  # Clean up resources before restarting
+                    restart_application()  # Gracefully restart the entire app
+                    return  # This line won't be reached as os.execl replaces the process.
             time.sleep(0.005)
+
 
     def _send_encoded_output(self) -> None:
         """
@@ -101,7 +119,6 @@ class VideoSender:
         """
         while not self._stop_event.is_set():
             try:
-                # Read a chunk (adjust chunk size as needed)
                 chunk = self.ffmpeg_process.stdout.read(4096)
                 if not chunk:
                     break  # FFmpeg process ended
@@ -111,7 +128,7 @@ class VideoSender:
                 self.socket.sendto(packet, (self.host, self.port))
                 logging.debug("Encoded chunk sent.")
             except Exception as e:
-                logging.error(f"Error reading from FFmpeg stdout: {e}")
+                logging.error("Error reading from FFmpeg stdout: %s", e)
                 break
 
     def send_frames(self) -> None:
@@ -130,17 +147,37 @@ class VideoSender:
                 if frame is None:
                     continue
                 try:
-                    # Write raw frame bytes to FFmpeg's stdin
                     self.ffmpeg_process.stdin.write(frame.tobytes())
                 except Exception as e:
-                    logging.error(f"Error writing to FFmpeg stdin: {e}")
+                    logging.error("Error writing to FFmpeg stdin: %s", e)
                     break
                 time.sleep(0.005)
         except Exception as e:
-            logging.error(f"Error in send_frames: {e}")
+            logging.error("Error in send_frames: %s", e)
         finally:
             self.cleanup()
             ffmpeg_sender_thread.join(timeout=1)
+
+    def _restart_process(self) -> None:
+        """
+        Restart the entire VideoSender process.
+        This method cleans up current resources and reinitializes them.
+        It runs in a separate thread so that the calling capture thread can exit.
+        """
+        logging.info("Restarting VideoSender process...")
+        self.cleanup()
+        time.sleep(1)  # Brief pause before reinitialization
+
+        # Clear the stop event and reset failure counter
+        self._stop_event.clear()
+        self.capture_failure_count = 0
+
+        # Reinitialize camera and FFmpeg, and start a new capture thread.
+        self._init_camera()
+        self._init_ffmpeg()
+        self.capture_thread = threading.Thread(target=self._capture_frames, daemon=True)
+        self.capture_thread.start()
+        logging.info("VideoSender process restarted successfully.")
 
     def stop(self) -> None:
         """Signal the sender to stop capturing and sending frames."""
@@ -149,7 +186,8 @@ class VideoSender:
     def cleanup(self) -> None:
         """Release camera, socket, and FFmpeg process resources."""
         self._stop_event.set()
-        if self.capture_thread.is_alive():
+        # Only join capture_thread if current thread is not it
+        if self.capture_thread.is_alive() and threading.current_thread() != self.capture_thread:
             self.capture_thread.join(timeout=1)
         if self.capture.isOpened():
             self.capture.release()
@@ -158,6 +196,6 @@ class VideoSender:
                 self.ffmpeg_process.stdin.close()
                 self.ffmpeg_process.terminate()
             except Exception as e:
-                logging.error(f"Error terminating FFmpeg process: {e}")
+                logging.error("Error terminating FFmpeg process: %s", e)
         self.socket.close()
         logging.info("VideoSender resources have been released.")
