@@ -90,6 +90,13 @@ resource "aws_security_group" "surgery_sg" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
+  ingress {
+    from_port   = -1
+    to_port     = -1
+    protocol    = "icmp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
   # Outbound rule allowing everything
   egress {
     from_port   = 0
