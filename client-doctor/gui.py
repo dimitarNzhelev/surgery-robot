@@ -35,16 +35,40 @@ class VideoControlGUI:
         self.control_frame = ttk.Frame(self.root)
         self.control_frame.grid(row=1, column=0, pady=10)
 
-        # Directional buttons arranged in a grid layout within the control frame.
-        self.btn_up = ttk.Button(self.control_frame, text="↑", command=lambda: self.command_sender.send_udp_message('u'))
-        self.btn_left = ttk.Button(self.control_frame, text="←", command=lambda: self.command_sender.send_udp_message('l'))
-        self.btn_down = ttk.Button(self.control_frame, text="↓", command=lambda: self.command_sender.send_udp_message('d'))
-        self.btn_right = ttk.Button(self.control_frame, text="→", command=lambda: self.command_sender.send_udp_message('r'))
+        # Create 9 buttons with the desired grid layout:
+        # First row: Button1, Button2, Button3, Button4
+        self.btn1 = ttk.Button(self.control_frame, text="Button1",
+                               command=lambda: self.command_sender.send_udp_message('button1'))
+        self.btn2 = ttk.Button(self.control_frame, text="Button2",
+                               command=lambda: self.command_sender.send_udp_message('button2'))
+        self.btn3 = ttk.Button(self.control_frame, text="Button3",
+                               command=lambda: self.command_sender.send_udp_message('button3'))
+        self.btn4 = ttk.Button(self.control_frame, text="Button4",
+                               command=lambda: self.command_sender.send_udp_message('button4'))
+        self.btn1.grid(row=0, column=0, padx=5, pady=5)
+        self.btn2.grid(row=0, column=1, padx=5, pady=5)
+        self.btn3.grid(row=0, column=2, padx=5, pady=5)
+        self.btn4.grid(row=0, column=3, padx=5, pady=5)
 
-        self.btn_up.grid(row=0, column=1, padx=5, pady=5)
-        self.btn_left.grid(row=1, column=0, padx=5, pady=5)
-        self.btn_down.grid(row=1, column=1, padx=5, pady=5)
-        self.btn_right.grid(row=1, column=2, padx=5, pady=5)
+        # Second row: Button5, Button6, Button7, Button8
+        self.btn5 = ttk.Button(self.control_frame, text="Button5",
+                               command=lambda: self.command_sender.send_udp_message('button5'))
+        self.btn6 = ttk.Button(self.control_frame, text="Button6",
+                               command=lambda: self.command_sender.send_udp_message('button6'))
+        self.btn7 = ttk.Button(self.control_frame, text="Button7",
+                               command=lambda: self.command_sender.send_udp_message('button7'))
+        self.btn8 = ttk.Button(self.control_frame, text="Button8",
+                               command=lambda: self.command_sender.send_udp_message('button8'))
+        self.btn5.grid(row=1, column=0, padx=5, pady=5)
+        self.btn6.grid(row=1, column=1, padx=5, pady=5)
+        self.btn7.grid(row=1, column=2, padx=5, pady=5)
+        self.btn8.grid(row=1, column=3, padx=5, pady=5)
+
+        # Third row: Button9 (centered)
+        self.btn9 = ttk.Button(self.control_frame, text="Button9",
+                               command=lambda: self.command_sender.send_udp_message('button9'))
+        # Place button9 in row 2 spanning columns 1 and 2 so that it's centered.
+        self.btn9.grid(row=2, column=1, columnspan=2, padx=5, pady=5)
 
     def bind_events(self):
         self.root.bind('<KeyPress>', self.handle_key_press)
@@ -71,13 +95,13 @@ class VideoControlGUI:
         elif 's' in keys and 'd' in keys:
             command = 'dr'
         elif 'w' in keys:
-            command = 'u0'
+            command = 'u'
         elif 'a' in keys:
-            command = '0l'
+            command = 'l'
         elif 's' in keys:
-            command = 'd0'
+            command = 'd'
         elif 'd' in keys:
-            command = '0r'
+            command = 'r'
         else:
             return
         self.command_sender.send_udp_message(command)
