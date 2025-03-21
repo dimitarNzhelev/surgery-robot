@@ -77,9 +77,10 @@ class VideoStreamReceiver:
         sock.bind((self.host, self.port))
         print('Waiting for MPEG-TS video frames...')
         try:
+            print(self._running)
             while self._running:
                 packet, _ = sock.recvfrom(buffSize)
-                print(f"Received UDP packet: {len(packet)} bytes")
+                # print(f"Received UDP packet: {len(packet)} bytes")
                 if len(packet) < 12:
                     continue
                 timestamp, size = struct.unpack('di', packet[:12])
@@ -99,7 +100,7 @@ class VideoStreamReceiver:
         while self._running:
             try:
                 data = self.mpeg_queue.get(timeout=0.1)
-                print(f"Received MPEG-TS chunk: {len(data)} bytes")
+                # print(f"Received MPEG-TS chunk: {len(data)} bytes")
             except queue.Empty:
                 continue
             try:
