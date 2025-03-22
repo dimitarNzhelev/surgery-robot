@@ -77,14 +77,14 @@ class UdpReceiver:
             servo2 = [70, 70, 50, 90, 0, 90]
             sleep_times = [2, 2, 2, 2, 1, 2]
 
-        if sequence == "sequence2":
+        elif sequence == "sequence2":
             servo1 = [110, 110, 110, 110, 110, 70]
             servo2 = [140, 125, 155, 125, 140, 70]
             sleep_times = [2, 0.2, 0.2, 0.2, 2, 2]
 
-        elif sequence in ["sequence3", "sequence4"]:
-            logging.info(f"{sequence} is not implemented; command ignored.")
-            return
+        elif sequence == "sequence3":
+            logging.info("Executing sequence3...")
+            commands.run_sequence3(self.arduino_ser)
         else:
             logging.info("Unknown sequence; no action taken.")
             return
