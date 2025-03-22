@@ -3,8 +3,9 @@ import base64
 import time
 import logging
 import threading
+from network import CommandSender
 
-from flask import Flask, request
+from flask import Flask, request, send_file
 from flask_socketio import SocketIO, emit
 
 # Configure the logger for this module.
@@ -26,6 +27,7 @@ class VRStreamingServer:
         self.video_receiver = video_receiver
         self.host = host
         self.port = port
+        self.command_sender = CommandSender()
 
         # Create Flask + SocketIO App
         self.app = Flask(__name__)
@@ -35,7 +37,7 @@ class VRStreamingServer:
 
         @self.app.route('/')
         def index():
-            return self.render_aframe_page()
+            return send_file('vr.html')
 
         # Socket.IO events
         @self.socketio.on('connect')
@@ -49,6 +51,8 @@ class VRStreamingServer:
         @self.socketio.on('control_message')
         def on_control_message(data):
             logger.info('[Socket.IO] Received control message: %s', data)
+            self.command_sender.send_udp_message(data)
+
 
         @self.socketio.on('start_connection')
         def on_start_connection(data):
@@ -57,109 +61,6 @@ class VRStreamingServer:
             threading.Thread(target=self.broadcast_frames, args=(sid,), daemon=True).start()
 
   
-
-    def render_aframe_page(self):
-        """
-        Returns HTML that:
-         - Loads A-Frame and Socket.IO,
-         - Creates a <canvas> within A-Frame's asset management,
-         - Receives 'video_frame' events and draws them onto the canvas,
-         - Applies the canvas as a texture to an <a-plane>.
-        """
-        html = """
-<!DOCTYPE html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <title>A-Frame VR Stream (Socket.IO)</title>
-    <!-- Load A-Frame -->
-    <script src="https://aframe.io/releases/1.4.0/aframe.min.js"></script>
-    <!-- Load Socket.IO from CDN -->
-    <script src="https://cdn.socket.io/4.6.1/socket.io.min.js"></script>
-  </head>
-  <body>
-    <a-scene>
-      <a-assets>
-        <canvas id="videoCanvas" width="640" height="480"></canvas>
-      </a-assets>
-      <a-plane id="videoPlane" src="#videoCanvas" 
-               position="0 1.6 -2" 
-               width="4" 
-               height="3">
-      </a-plane>
-      <a-sky color="#ECECEC"></a-sky>
-    </a-scene>
-    <script>
-      const canvas = document.getElementById('videoCanvas');
-      const ctx = canvas.getContext('2d');
-
-      const socket = io({
-        transports: ['websocket'],
-        forceNew: true,
-        reconnection: true,
-      });
-
-      socket.emit('start_connection', 'The client is ready to receive video frames.');
-
-      socket.on('connect', () => {
-        console.log('[Socket.IO] Connected to VR streaming server.');
-      });
-
-      socket.on('disconnect', () => {
-        console.log('[Socket.IO] Disconnected from server.');
-      });
-
-      function base64ToBlob(base64, mime) {
-        const byteChars = atob(base64);
-        const byteArrays = [];
-
-        for (let offset = 0; offset < byteChars.length; offset += 512) {
-          const slice = byteChars.slice(offset, offset + 512);
-          const byteNumbers = new Array(slice.length);
-          for (let i = 0; i < slice.length; i++) {
-            byteNumbers[i] = slice.charCodeAt(i);
-          }
-          byteArrays.push(new Uint8Array(byteNumbers));
-        }
-
-        return new Blob(byteArrays, { type: mime });
-      }
-
-      socket.on('video_frame', (base64JPEG) => {
-        const blob = base64ToBlob(base64JPEG, 'image/jpeg');
-        const url = URL.createObjectURL(blob);
-        const img = new Image();
-        img.crossOrigin = 'anonymous';
-
-        img.onload = function () {
-          console.log('[Client] Image loaded');
-          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-          URL.revokeObjectURL(url);
-
-          const videoPlane = document.querySelector('#videoPlane');
-          const material = videoPlane.getObject3D('mesh')?.material;
-          if (material?.map) {
-            material.map.needsUpdate = true;
-          }
-        };
-
-        img.onerror = function () {
-          console.error('[Client] Failed to load image');
-        };
-
-        img.src = url;
-      });
-
-      document.addEventListener('keydown', (e) => {
-        socket.emit('control_message', { type: 'keydown', key: e.key });
-      });
-    </script>
-
-    </body>
-</html>
-        """
-        return html
-
     def broadcast_frames(self, sid):
         """
         Continuously read frames from video_receiver.decoded_frame_queue,
@@ -188,12 +89,13 @@ class VRStreamingServer:
               frame_count += 1
               self.socketio.emit('video_frame', encoded, to=sid, callback=(lambda: print("Frame sent.")))
               self.socketio.sleep(0.03)
+    
     def run(self):
         """
         Start the Socket.IO server. This should be run on a separate thread if the main thread is busy.
         """
         logger.info("[Socket.IO] A-Frame VRStreamingServer running on %s:%s", self.host, self.port)
-        self.socketio.run(self.app, host=self.host, port=self.port)
+        self.socketio.run(self.app, host=self.host, port=self.port, ssl_context=('localhost+2.pem', 'localhost+2-key.pem'))
 
     def stop(self):
         """

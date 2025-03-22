@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>A-Frame VR Stream (Socket.IO) with Enhanced Controller Debugging</title>
+    <script src="https://aframe.io/releases/1.4.0/aframe.min.js"></script>
+    <script src="https://cdn.socket.io/4.6.1/socket.io.min.js"></script>
+  </head>
+  <body>
+    <a-scene controller-listener gamepad-debug>
+      <a-assets>
+        <!-- Existing canvas asset -->
+        <canvas id="videoCanvas" width="640" height="480"></canvas>
+        <!-- Test video asset -->
+        <!-- <video id="testVideo" autoplay loop muted playsinline preload="auto" crossorigin="anonymous" src="https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4"></video> -->
+    </a-assets>
+
+      <!-- Hidden plane for streaming video -->
+      <a-plane id="videoPlane" src="#videoCanvas"
+               position="0 1.6 -2"
+               width="4"
+               height="3"
+               visible="false">
+      </a-plane>
+      
+      <!-- Test Video Element for static MP4 playback -->
+      <!-- <a-video src="#testVideo"
+               width="4" height="3"
+               position="0 3 -4"> -->
+      <!-- </a-video> -->
+      
+      <!-- Debug HUD: on-screen text to display controller events -->
+      <a-text id="debugText"
+              value="Waiting for controller input..."
+              position="0 2 -2"
+              align="center"
+              color="#000"
+              width="6">
+      </a-text>
+
+      <a-sky color="#ECECEC"></a-sky>
+    </a-scene>
+
+    <script>
+      // Socket.IO and video streaming logic remains unchanged.
+      const canvas = document.getElementById('videoCanvas');
+      const ctx = canvas.getContext('2d');
+
+      const socket = io({
+        transports: ['websocket'],
+        forceNew: true,
+        reconnection: true,
+      });
+
+      socket.emit('start_connection', 'The client is ready to receive video frames.');
+
+      socket.on('connect', () => {
+        console.log('[Socket.IO] Connected to VR streaming server.');
+      });
+
+      socket.on('disconnect', () => {
+        console.log('[Socket.IO] Disconnected from server.');
+      });
+
+      // Base64 to JPEG Blob conversion function
+      function base64ToBlob(base64, mime) {
+        const byteChars = atob(base64);
+        const byteArrays = [];
+        for (let offset = 0; offset < byteChars.length; offset += 512) {
+          const slice = byteChars.slice(offset, offset + 512);
+          const byteNumbers = new Array(slice.length);
+          for (let i = 0; i < slice.length; i++) {
+            byteNumbers[i] = slice.charCodeAt(i);
+          }
+          byteArrays.push(new Uint8Array(byteNumbers));
+        }
+        return new Blob(byteArrays, { type: mime });
+      }
+
+      // Handle video frames streamed via Socket.IO
+      socket.on('video_frame', (base64JPEG) => {
+        const blob = base64ToBlob(base64JPEG, 'image/jpeg');
+        const url = URL.createObjectURL(blob);
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+
+        img.onload = function () {
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          URL.revokeObjectURL(url);
+          const videoPlane = document.querySelector('#videoPlane');
+          const material = videoPlane.getObject3D('mesh')?.material;
+          if (material?.map) {
+            material.map.needsUpdate = true;
+          }
+          if (!videoPlane.getAttribute('visible')) {
+            videoPlane.setAttribute('visible', 'true');
+          }
+        };
+
+        img.onerror = function () {
+          console.error('[Client] Failed to load image');
+        };
+
+        img.src = url;
+      });
+
+      // Ensure the test video starts playing once the DOM is loaded
+      document.addEventListener('DOMContentLoaded', () => {
+        const testVideo = document.getElementById('testVideo');
+        testVideo.play().catch((err) => {
+          console.error('Error playing test video:', err);
+          alert('Error playing test video: ' + err.message);
+        });
+      });
+    </script>
+
+    <!-- Enhanced Controller Listener Component for VR Input -->
+    <script>
+      AFRAME.registerComponent('controller-listener', {
+        init: function () {
+          const debugText = document.querySelector('#debugText');
+          function updateDebug(text) {
+            if (debugText) {
+              debugText.setAttribute('value', text);
+            }
+          }
+
+          // Create right-hand controller entity using both components
+          const rightHand = document.createElement('a-entity');
+          rightHand.setAttribute('id', 'rightHand');
+          rightHand.setAttribute('oculus-touch-controls', 'hand: right');
+          rightHand.setAttribute('hand-controls', 'hand: right');
+          this.el.appendChild(rightHand);
+
+          // Create left-hand controller entity (optional)
+          const leftHand = document.createElement('a-entity');
+          leftHand.setAttribute('id', 'leftHand');
+          leftHand.setAttribute('oculus-touch-controls', 'hand: left');
+          leftHand.setAttribute('hand-controls', 'hand: left');
+          this.el.appendChild(leftHand);
+
+          // For debugging, log when controllers are added.
+          console.log('Controllers added to the scene.');
+
+          // Right-hand controller events
+          rightHand.addEventListener('buttondown', function (evt) {
+            const msg = 'Right Button pressed: ' + evt.detail.id;
+            console.log(msg);
+            updateDebug(msg);
+            socket.emit('control_message', `r${evt.detail.id}`);
+        });
+          rightHand.addEventListener('triggerdown', function (evt) {
+            const msg = 'Right Trigger pressed';
+            console.log(msg);
+            updateDebug(msg);
+          });
+          rightHand.addEventListener('thumbstickmoved', function (evt) {
+            const msg = 'Right Thumbstick moved: ' + JSON.stringify(evt.detail);
+            console.log(msg);
+            updateDebug(msg);
+          });
+
+          // Left-hand controller events (if needed)
+          leftHand.addEventListener('buttondown', function (evt) {
+            const msg = 'Left Button pressed: ' + evt.detail.id;
+            console.log(msg);
+            updateDebug(msg);
+            socket.emit('control_message', `l${evt.detail.id}`);
+          });
+          leftHand.addEventListener('triggerdown', function (evt) {
+            const msg = 'Left Trigger pressed';
+            console.log(msg);
+            updateDebug(msg);
+          });
+          leftHand.addEventListener('thumbstickmoved', function (evt) {
+            const msg = 'Left Thumbstick moved: ' + JSON.stringify(evt.detail);
+            console.log(msg);
+            updateDebug(msg);
+          });
+        }
+      });
+    </script>
+
+    <!-- Gamepad Debug Component to poll native gamepad state -->
+    <script>
+      AFRAME.registerComponent('gamepad-debug', {
+        tick: function () {
+          const gamepads = navigator.getGamepads();
+          for (let i = 0; i < gamepads.length; i++) {
+            const gp = gamepads[i];
+            if (gp && gp.connected) {
+              console.log(`Gamepad ${i}: ${gp.id}`);
+              const debugText = document.querySelector('#debugText');
+              if (debugText) {
+                debugText.setAttribute('value', `Gamepad ${i}: ${gp.id}\nAxes: ${gp.axes}\nButtons: ${gp.buttons.map(b => b.value)}`);
+              }
+            }
+          }
+        }
+      });
+    </script>
+  </body>
+</html>
